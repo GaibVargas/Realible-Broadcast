@@ -78,6 +78,7 @@ export class BestEffortBroadcast {
       client.write(msg.toString())
       client.end()
     })
+    client.on('error', () => {})
   }
   
   // Broadcast para todos os hosts do grupo
@@ -98,5 +99,9 @@ export class BestEffortBroadcast {
 
   onReceiveMessage(cb: ((msg: Message) => void)): void {
     this.cb = cb
+  }
+
+  close() {
+    this.server.close()
   }
 }
