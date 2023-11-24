@@ -1,5 +1,6 @@
-import { BestEffortBroadcast, Message, Host } from '../lib/index'
+import { Broadcast, Message, Host } from '../lib/index'
 import * as readline from 'readline'
+import { getIp } from '../utils'
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -9,16 +10,24 @@ const rl = readline.createInterface({
 const group: Host[] = [
   {
     port: 3000,
-    address: 'localhost'
+    address: getIp()
   },
   {
     port: 3001,
-    address: 'localhost'
+    address: getIp()
+  },
+  {
+    port: 3002,
+    address: getIp()
+  },
+  {
+    port: 3003,
+    address: getIp()
   },
 ]
 
 const port = parseInt(process.argv[2])
-const beb = new BestEffortBroadcast(port, group)
+const beb = new Broadcast(port, group)
 
 function main() {
   console.log('Para sair digite: !q')
@@ -29,7 +38,7 @@ function main() {
       rl.close()
       return
     }
-    beb.broadcast(new Message(input, { port, address: 'localhost' } as Host))
+    beb.broadcast(input)
     rl.prompt(true)
   })
 
@@ -38,9 +47,7 @@ function main() {
   })
 
   beb.onReceiveMessage((msg: Message) => {
-    if (msg.sender.port !== port) {
-      console.log(`[${msg.sender.port}]`, msg.data)
-    }
+    console.log(`[${msg.sender.address}:${msg.sender.port}]`, msg.data)
     rl.prompt(true)
   })
 }

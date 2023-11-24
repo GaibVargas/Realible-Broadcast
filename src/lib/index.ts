@@ -1,104 +1,112 @@
 import * as net from 'net'
-import { v4 as uuid } from 'uuid'
+import { getIp } from '../utils'
+import { Message } from './message'
+import { Host } from './types'
 
-export type Host = {
-  port: number
-  address: string
+export {
+  Message,
+  Host
 }
 
-export class Message {
-  sender: Host
-  data: string
-  id: string
-
-  constructor(data: string, sender: Host, id?: string) {
-    this.data = data
-    this.sender = sender
-    if (!id) {
-      this.id = uuid()
-    } else {
-      this.id = id
-    }
-  }
-
-  toString() {
-    const str = JSON.stringify({
-      id: this.id,
-      sender: this.sender,
-      data: this.data,
-    })
-    return str
-  }
-}
-
-export class BestEffortBroadcast {
-/* Events:
-    Request: 〈 beb, Broadcast | m 〉: Broadcasts a message m to all processes.
-    Indication: 〈 beb, Deliver | p, m 〉: Delivers a message m broadcast by process p.
-    Properties:
-        BEB1: Validity: If a correct process broadcasts a message m, then every correct/ process eventually delivers m.
-        BEB2: No duplication: No message is delivered more than once.
-        BEB3: No creation: If a process delivers a message m with sender s, then m was
-        previously broadcast by process s.
-*/
+export class Broadcast {
   private port: number
   private group: Host[]
   private server: net.Server
+
   private delivered: Set<string>
-  private cb: (msg: Message) => void
+  private pending: Set<string>
+  private acks: Map<string, number>
+  private onDeliverCallback: (msg: Message) => void
 
   constructor(port: number, group: Host[]) {
     this.port = port
     this.group = group
     this.server = net.createServer(this.onConnect.bind(this))
     this.server.listen(this.port)
-    this.delivered = new Set<string>()
-    this.cb = () => {}
+    
+    this.delivered = new Set<string>
+    this.pending = new Set<string>() // Diferente do livro, não armazenamos a mensagem no pending, apenas seu ID.
+    this.acks = new Map<string, number>()
+    this.onDeliverCallback = () => {}
   }
 
   private parseMessage(str: string) {
     const msg = JSON.parse(str) as Message
-    return new Message(msg.data, msg.sender as Host, msg.id) // BEB3 não violado
+    return new Message(msg.data, msg.sender as Host, msg.id)
   }
 
-  // Lógica de conexão TCP, quando recebe uma mensagem parseia e envia para o receive
-  onConnect(connection: net.Socket): void {
+  // Lógica de conexão TCP (PL), quando recebe uma mensagem parseia e envia para o bebDeliver
+  private onConnect(connection: net.Socket): void {
     connection.setEncoding('utf8')
     connection.on('data', (data: string) => {
-      const msg = this.parseMessage(data) // BEB3 não violado
-      this.receive(msg)
+      const msg = this.parseMessage(data)
+      this.bebDeliver(msg)
     })
   }
   
   // Lógica de conexão TCP, quando envia uma mensagem cria um socket e envia a mensagem em JSON
-  send(host: Host, msg: Message) {
+  private bebSend(host: Host, msg: Message) {
+    // Conexão criada a cada mensagem para facilitar demonstração de erros em nós do grupo.
+    // Já que o grupo é estático, o simples fato de um nó não estar ligado já é considerado um erro.
     const client = new net.Socket();
     client.setEncoding('utf8')
     client.connect(host.port, host.address, () => {
       client.write(msg.toString())
       client.end()
     })
-    client.on('error', () => {})
+    client.on('error', () => {}) // Para não mostrar logs de erro no terminal do cliente, ser fail-silent
   }
   
   // Broadcast para todos os hosts do grupo
-  broadcast(message: Message) {
+  private bebBroadcast(message: Message) {
     for (const host of this.group) {
-      this.send(host, message)
+      this.bebSend(host, message)
     }
   }
 
-  // Lógica de recebimento de mensagem, se a mensagem já foi entregue, não faz nada, se não, adiciona na lista de entregues e envia para o broadcast
-  receive(msg: Message) {
-    if (!this.delivered.has(msg.id)) {
-      this.delivered.add(msg.id) // BEB2
-      this.broadcast(msg) // BEB1
-      this.cb(msg) 
+  private bebDeliver(msg: Message) {
+    this.receive(msg)
+  }
+
+  broadcast(data: string) {
+    const msg = new Message(
+      data,
+      {
+        address: getIp(),
+        port: this.port
+      } as Host
+    )
+    this.pending.add(msg.id)
+    this.bebBroadcast(msg)
+  }
+
+  private incrementAcks(msg: Message) {
+    this.acks.set(msg.id, (this.acks.get(msg.id) || 0) + 1)
+  }
+
+  private receive(msg: Message) {
+    this.incrementAcks(msg)
+    if (!this.pending.has(msg.id)) {
+      this.pending.add(msg.id)
+      this.bebBroadcast(msg)
     }
+
+    if (!this.delivered.has(msg.id) && this.canDeliver(msg)) {
+      this.deliver(msg)
+    }
+  }
+
+  private canDeliver(msg: Message) {
+    return (this.acks.get(msg.id) || 0) > (this.group.length / 2)
+  }
+
+  private deliver(msg: Message) {
+    this.delivered.add(msg.id)
+    this.onDeliverCallback(msg)
   }
 
   onReceiveMessage(cb: ((msg: Message) => void)): void {
-    this.cb = cb
+    this.onDeliverCallback = cb
   }
 
   close() {
