@@ -43,7 +43,7 @@ function main(port: number) {
     rl.prompt(true)
   })
 
-  console.log('Para sair digite: Ctrl + c')
+  console.log('Para sair: Ctrl + c')
   rl.prompt(true)
 }
 
