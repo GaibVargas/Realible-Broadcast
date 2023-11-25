@@ -13,7 +13,7 @@ utils: contém funções auxiliares que são comuns ao cliente e a biblioteca de
 Certifique de que há algum gerenciador de pacote node instalado na sua máquina como o npm, e rode o seguinte comando para instalar as dependências:
 
 ```sh
-npm install
+  npm install
 ```
 
 A comunicação é feita em um grupo fixo, que é descrito no arquivo src/client/index.ts iniciando na linha 6.
